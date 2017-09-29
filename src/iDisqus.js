@@ -169,6 +169,7 @@
             _.opts.url = location.pathname + location.search;
         }
         _.opts.identifier = !!_.opts.identifier ? _.opts.identifier : _.opts.url;
+        _.opts.identifier = _.opts.identifier.slice(0, 1) != '/' ? '/' + _.opts.identifier : _.opts.identifier;
         _.opts.link = _.opts.site + _.opts.url; 
         _.opts.title = !!_.opts.title ? _.opts.title : d.title;
         _.opts.slug = !!_.opts.slug ? _.opts.slug.replace(/[^A-Za-z0-9_-]+/g,'') : '';
@@ -490,7 +491,7 @@
             s.onload = function(){
                 _.stat.disqusLoaded = true;
                 _tip = '连接成功，加载 Disqus 评论框……'
-            } 
+            }
             s.onerror = function(){
                 if( _.opts.mode == 1){
                     _tip = '连接失败，加载简易评论框……';
@@ -588,7 +589,7 @@
         _.dom.querySelector('#idisqus').style.display = 'block';
         _.dom.querySelector('#disqus_thread').style.display = 'none';
         getAjax(
-            _.opts.api + '/getcomments.php?link=' + _.opts.url + (!!_.stat.next ? '&cursor=' + _.stat.next : ''),
+            _.opts.api + '/getcomments.php?link=' + _.opts.identifier + (!!_.stat.next ? '&cursor=' + _.stat.next : ''),
             function(resp){
                 var data = JSON.parse(resp);
                 if (!data.auth){
