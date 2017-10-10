@@ -488,8 +488,18 @@
             var s = d.createElement('script');
             s.src = '//'+_.opts.forum+'.disqus.com/embed.js';
             s.dataset.timestamp = Date.now();
+            (d.head || d.body).appendChild(s);
+            var timer = setTimeout(function() {
+                s.parentNode.removeChild(s);
+                clearTimeout(timer);
+                if( _.opts.mode == 1){
+                    _tip = '连接超时，加载简易评论框……';
+                    _.getlist();
+                }
+            }, _.opts.timeout);
             s.onload = function(){
                 _.stat.disqusLoaded = true;
+                clearTimeout(timer);
                 _tip = '连接成功，加载 Disqus 评论框……'
             }
             s.onerror = function(){
@@ -498,29 +508,7 @@
                     _.getlist();
                 }
             }
-
-            var xhr = new XMLHttpRequest();
-            xhr.open('GET', '//disqus.com/next/config.json?' + Date.now(), true);
-            xhr.timeout = _.opts.timeout;
-            xhr.onreadystatechange = function () {
-                if (xhr.readyState == 4 && xhr.status == 200) {
-                    (d.head || d.body).appendChild(s);
-                }
-            }
-            xhr.ontimeout = function () {
-                xhr.abort();
-                if( _.opts.mode == 1){
-                    _tip = '连接超时，加载简易评论框……';
-                    _.getlist();
-                }
-            }
-            xhr.onerror = function() {
-                if( _.opts.mode == 1){
-                    _tip = '连接失败，加载简易评论框……';
-                    _.getlist();
-                }
-            }
-            xhr.send();
+            
         } else {
             _.stat.current = 'disqus';
             _.dom.querySelector('#idisqus').style.display = 'none';
