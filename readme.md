@@ -9,25 +9,46 @@ Disqus PHP API
 * 评论列表
 * 评论发表
 * 图片上传
-* Gravatar 头像
 * Emoji 表情
+* Gravatar 头像
 * 邮件通知
 * ……
 
+注：由于 GDPR，Disqus 目前屏蔽了 Email 及 IP 的获取，因此 Gravatar 头像及匿名评论的邮件通知暂无法完美实现。目前暂存匿名评论者邮箱号，以发回复邮件通知显示 Gravatar 头像。
+
 ## Disqus 设置
 
-* 使用 API 实现匿名评论功能，需在 Disqus 后台[网站设置](https://disqus.com/admin/settings/community/)，开启访客评论功能（Guest Commenting 项中勾选 Allow guests to comment）。
+使用 API 实现匿名评论功能，需在 Disqus 后台[网站设置](https://disqus.com/admin/settings/community/)，设置相关选项。
+
+* 开启匿名评论，Guest Commenting 项中勾选 Allow guests to comment。
+* 若需评论免审，Pre-moderation 项选中 None。
 
 ## 后端
 
-* 依赖于 PHP，采用 PHP cURL 请求 Disqus API，以获取评论数据，发送访客评论等操作。
-* 配置文件为 `config.php`，有简单说明。 
+* 需要部署在境外服务器。
+* 依赖于 PHP 5.6+，采用 PHP cURL 请求 Disqus API，以获取评论数据，发送访客评论等操作。
+* 配置文件为 `config.php`，有简单说明。
+
+### 重要
+
+必须在 [Disqus API](https://disqus.com/api/applications/) 申请注册一个 App，取得相关的公钥（**API Key**）、私钥（**API Secret**），并填写于后端的配置文件 `config.php` 中。
+
+App 设置方面，回调链接请填写 `login.php` 文件的绝对地址，主要的设置如下图，可根据自己情况填写。
+
+![Disqus API 相关设置](https://uploads.disquscdn.com/images/013aa0590d3d091408c06d3d42b9e2fa15d6731f6c1e2cff5c8495fe23b21e80.png)
+
+### 邮件发送
+
+简易评论框及 Disqus 评论框皆可实现，规则如下：
+
+1. 匿名者的回复提醒邮件（只有邮箱号存在才会发送）
+2. 管理员的留言提醒邮件（只有[设置](https://disqus.com/home/settings/moderation/)未勾选站点邮件提醒时发送，管理员回复不发提醒）
 
 ## 前端
 
 DEMO: http://blog.fooleap.org/disqus-php-api.html
 
-项目将 Disqus 原生评论框打包在内，若使用本评论框，需将网页上所有与 Disqus 相关的元素清除，例如 id 为 `disqus_thread` 的容器、`disqus_config` 函数等。
+项目将 Disqus 原生评论框加载代码打包在内，若使用本评论框，需将网页上所有与 Disqus 相关的元素清除，例如 id 为 `disqus_thread` 的容器、`disqus_config` 函数等。
 
 Disqus 评论框的相关配置`disqus_config`：
 
@@ -59,7 +80,7 @@ Disqus 评论框的相关配置`disqus_config`：
 
 ```javascript
 var disq = new iDisqus('comment', {
-    forum: 'fooleap',
+    forum: 'ifool',
     api: 'http://api.fooleap.org/disqus',
     site: 'http://blog.fooleap.org',
     mode: 1,
@@ -102,7 +123,7 @@ var disq = new iDisqus('comment', {
 
 ##### url
 
-* 页面链接，一般不需要填写
+* 页面链接，按需填写
 * {String}
 * 默认：`location.pathname + location.search`
 
@@ -145,34 +166,35 @@ var disq = new iDisqus('comment', {
 * {Boolean}
 * 默认：`false`
 
-##### auto
+##### autoCreate
 
 * 是否自动创建 Thread，为了不创建垃圾 Thread，并不推荐设置为 `true`
 * {Boolean}
 * 默认：`false`
 
-##### badge
-
-* 管理员徽章文本
-* {String}
-* 默认：`"管理员"`
-
-##### emoji_path
+##### emojiPath
 
 * Emoji 表情 PNG 图片路径
 * {String}
-* 默认：`"https://assets-cdn.github.com/images/icons/emoji/unicode/"`
+* 默认：`"https://github.githubassets.com/images/icons/emoji/unicode/"`
 
-##### emoji_list
+##### emojiList
 
 * 自定义评论框内的点选 Emoji 表情，具体可看 DEMO 页面
 * {Object}
 
-##### emoji_preview
+##### emojiPreview
 
 * 评论预览是否支持 Emoji 短代码
 * {Boolean}
 * 默认：`false`
+
+##### relatedType
+
+* 相关文章类型，可选相关文章或热门文章
+* {String}
+* 默认：`Related`，可选`Popular`
+
 
 ### 实例方法
 
@@ -189,6 +211,7 @@ var disq = new iDisqus('comment', {
 * 加载评论数
 * 用法：创建容器（可多个），加属性 data-disqus-url 值放页面链接，创建实例后执行则可显示评论数，具体可查看DEMO 页面
 
-#### popular
+#### postsList
 
-* 最近热门列表
+* 加载最近评论
+* 用法：创建容器，指定Id（默认 disqusPostsList），创建实例后执行可显示最近评论，可通过指定参数设置加载评论数量（默认为 5）以及容器Id

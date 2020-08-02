@@ -3,16 +3,18 @@
  * 获取权限，简单封装常用函数
  *
  * @author   fooleap <fooleap@gmail.com>
- * @version  2017-10-16 17:46:41
+ * @version  2019-11-06 13:37:06
  * @link     https://github.com/fooleap/disqus-php-api
  *
  */
-namespace Emojione;
 require_once('config.php');
-require_once('emojione/autoload.php');
+require_once('cache.php');
+require_once('jwt.php');
+require_once('emoji.php');
 
 error_reporting(E_ERROR | E_PARSE);
 header('Content-type:text/json');
+header('Access-Control-Allow-Credentials: true');
 $origin = isset($_SERVER['HTTP_ORIGIN']) ? $_SERVER['HTTP_ORIGIN'] : '';  
 $ipRegex = '((2[0-4]|1\d|[1-9])?\d|25[0-5])(\.(?1)){3}';
 function domain($url){
@@ -22,204 +24,598 @@ function domain($url){
 if(preg_match('(localhost|'.$ipRegex.'|'.domain(DISQUS_WEBSITE).')', $origin)){
     header('Access-Control-Allow-Origin: '.$origin);
 }
+if($_SERVER['REQUEST_METHOD'] == 'OPTIONS')
+{
+    if (isset($_SERVER['HTTP_ACCESS_CONTROL_REQUEST_METHOD'])){
+        header('Access-Control-Allow-Methods: POST, GET, OPTIONS, DELETE, PUT');
+    }
 
-// Emoji 表情设置
-$client = new Client(new Ruleset());
-$client -> ignoredRegexp = '<code[^>]*>.*?<\/code>|<object[^>]*>.*?<\/object>|<span[^>]*>.*?<\/span>|<(?:object|embed|svg|img|div|span|p|a)[^>]*>';
-$client -> unicodeRegexp = '(?:\x{1F3F3}\x{FE0F}?\x{200D}?\x{1F308}|\x{1F441}\x{FE0F}?\x{200D}?\x{1F5E8}\x{FE0F}?)|[\x{0023}-\x{0039}]\x{FE0F}?\x{20e3}|[\x{1F1E0}-\x{1F1FF}]{2}|(?:[\x{1F468}\x{1F469}])\x{FE0F}?[\x{1F3FA}-\x{1F3FF}]?\x{200D}?(?:[\x{2695}\x{2696}\x{2708}\x{1F4BB}\x{1F4BC}\x{1F527}\x{1F52C}\x{1F680}\x{1F692}\x{1F33E}-\x{1F3ED}])|(?:[\x{2764}\x{1F466}-\x{1F469}\x{1F48B}][\x{200D}\x{FE0F}]+){1,3}[\x{2764}\x{1F466}-\x{1F469}\x{1F48B}]|(?:[\x{2764}\x{1F466}-\x{1F469}\x{1F48B}]\x{FE0F}?){2,4}|(?:[\x{1f46e}\x{1F468}\x{1F469}\x{1f575}\x{1f471}-\x{1f487}\x{1F645}-\x{1F64E}\x{1F926}\x{1F937}]|[\x{1F460}-\x{1F482}\x{1F3C3}-\x{1F3CC}\x{26F9}\x{1F486}\x{1F487}\x{1F6A3}-\x{1F6B6}\x{1F938}-\x{1F93E}]|\x{1F46F})\x{FE0F}?[\x{1F3FA}-\x{1F3FF}]?\x{200D}?[\x{2640}\x{2642}]?\x{FE0F}?|(?:[\x{26F9}\x{261D}\x{270A}-\x{270D}\x{1F385}-\x{1F3CC}\x{1F442}-\x{1F4AA}\x{1F574}-\x{1F596}\x{1F645}-\x{1F64F}\x{1F6A3}-\x{1F6CC}\x{1F918}-\x{1F93E}]\x{FE0F}?[\x{1F3FA}-\x{1F3FF}])|(?:[\x{2194}-\x{2199}\x{21a9}-\x{21aa}]\x{FE0F}?|[\x{3030}\x{303d}]\x{FE0F}?|(?:[\x{1F170}-\x{1F171}]|[\x{1F17E}-\x{1F17F}]|\x{1F18E}|[\x{1F191}-\x{1F19A}]|[\x{1F1E6}-\x{1F1FF}])\x{FE0F}?|\x{24c2}\x{FE0F}?|[\x{3297}\x{3299}]\x{FE0F}?|(?:[\x{1F201}-\x{1F202}]|\x{1F21A}|\x{1F22F}|[\x{1F232}-\x{1F23A}]|[\x{1F250}-\x{1F251}])\x{FE0F}?|[\x{203c}\x{2049}]\x{FE0F}?|[\x{25aa}-\x{25ab}\x{25b6}\x{25c0}\x{25fb}-\x{25fe}]\x{FE0F}?|[\x{00a9}\x{00ae}]\x{FE0F}?|[\x{2122}\x{2139}]\x{FE0F}?|\x{1F004}\x{FE0F}?|[\x{2b05}-\x{2b07}\x{2b1b}-\x{2b1c}\x{2b50}\x{2b55}]\x{FE0F}?|[\x{231a}-\x{231b}\x{2328}\x{23cf}\x{23e9}-\x{23f3}\x{23f8}-\x{23fa}]\x{FE0F}?|\x{1F0CF}|[\x{2934}\x{2935}]\x{FE0F}?)|[\x{2700}-\x{27bf}]\x{FE0F}?|[\x{1F000}-\x{1F6FF}\x{1F900}-\x{1F9FF}]\x{FE0F}?|[\x{2600}-\x{26ff}]\x{FE0F}?|[\x{0030}-\x{0039}]\x{FE0F}';
-$client -> imageType = 'png';
-$client -> imagePathPNG = EMOJI_PATH;
+    if (isset($_SERVER['HTTP_ACCESS_CONTROL_REQUEST_HEADERS'])){
+        header('Access-Control-Allow-Headers: '.$_SERVER['HTTP_ACCESS_CONTROL_REQUEST_HEADERS']);
+    }
+    exit(0);
+}
 
-$approved = DISQUS_APPROVED == 1 ? 'approved' : null;
-$disqus_host = GFW_INSIDE == 1 ? DISQUS_IP : 'disqus.com';
-$media_host = GFW_INSIDE == 1 ? DISQUS_MEDIAIP  : 'uploads.services.disqus.com';
+try {
+    $cache = new Cache();
+} catch (Exception $e) {
+    die('没有权限，请检查设置当前目录写权限，或将 config.php 中的 USE_TEMP 设置为 true');
+}
+
+$jwt = new JWT();
+$emoji = new Emoji();
+
+$disqus_host = IP_MODE == 1 && PROXY_MODE == 0 ? DISQUS_IP : 'disqus.com';
+$media_host = IP_MODE == 1 && PROXY_MODE == 0 ? DISQUS_MEDIAIP  : 'uploads.services.disqus.com';
+$login_host = IP_MODE == 1 && PROXY_MODE == 0 ? DISQUS_LOGINIP  : 'import.disqus.com';
 $url = parse_url(DISQUS_WEBSITE);
 $website = $url['scheme'].'://'.$url['host'];
+$user = $_COOKIE['access_token'];
 
-// 读取文件
-$session_data = json_decode(file_get_contents(sys_get_temp_dir().'/session-'.DISQUS_SHORTNAME.'.json'));
-$session = $session_data -> session;
-$pwd_md5 = $session_data -> pwd;
-$date_expires = strtotime($session_data -> expires);
-$date_now = strtotime(now);
+if ( isset($user) ){
 
-// session 过期或密码更新
-if( $date_now >= $date_expires || md5(DISQUS_PASSWORD) != $pwd_md5 ){
-    $cookie_temp = sys_get_temp_dir().'/cookie_temp.txt';
-    $cookie = sys_get_temp_dir().'/cookie.txt';
+    $userData = $jwt -> decode($user, DISQUS_PASSWORD);
 
-    $ch = curl_init();
+    if( $userData ){
 
-    // 取得 csrftoken
-    $options = array(
-        CURLOPT_URL => 'https://'.$disqus_host.'/profile/login/',
-        CURLOPT_HTTPHEADER => array('Host: disqus.com'),
-        CURLOPT_COOKIEJAR => $cookie_temp,
-        CURLOPT_HEADER => true,
-        CURLOPT_RETURNTRANSFER => true,
-    );
-    curl_setopt_array($ch, $options);
-    $response = curl_exec($ch);
-    $errno = curl_errno($ch);
-    if ($errno == 60 || $errno == 77) {
-        curl_setopt($ch, CURLOPT_CAINFO, dirname(__FILE__) . DIRECTORY_SEPARATOR . 'cacert.pem');
-        $response = curl_exec($ch);
+        $refresh_token = $userData['refresh_token'];
+        $access_token = $userData['access_token'];
+
+        if( $userData['exp'] < $_SERVER['REQUEST_TIME'] + 3600 * 20 * 24){
+
+            $authorize = 'refresh_token';
+            $fields = (object) array(
+                'grant_type' => urlencode($authorize),
+                'client_id' => urlencode(PUBLIC_KEY),
+                'client_secret' => urlencode(SECRET_KEY),
+                'refresh_token' => urlencode($refresh_token)
+            );
+
+            getAccessToken($fields);
+        }
+
     }
+}
 
-    preg_match_all('/^Set-Cookie:\s*([^;]*)/mi', $response, $matches);
-    $token = str_replace("Set-Cookie: csrftoken=", "", $matches[0][0]);
+function jsonEncode($array){
+    return json_encode($array, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_NUMERIC_CHECK);
+}
 
-    // 登录并取得 session
-    $params = array(
-        'csrfmiddlewaretoken' => $token,
+function adminLogin(){
+
+    global $cache, $login_host;
+
+    $fields = (object) array(
         'username' => DISQUS_EMAIL,
-        'password' => DISQUS_PASSWORD 
+        'password' => DISQUS_PASSWORD
     );
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_REFERER, 'https://disqus.com/profile/login/');
-    curl_setopt($ch, CURLOPT_COOKIEFILE, $cookie_temp);
-    curl_setopt($ch, CURLOPT_COOKIEJAR, $cookie);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($params));
-    $result = curl_exec($ch);
-    preg_match('/^Set-Cookie:\s+(session.*)/mi', $result, $output_match);
-    preg_match('/(session[^;]*)/mi', $output_match[1], $session_match);
-    preg_match('/expires=([^;]*)/mi', $output_match[1], $expires_match);
-    $session = $session_match[0];
-    $expires = $expires_match[1];
 
-    curl_close($ch);
-    if( strpos($session, 'session') !== false ){
-        //写入文件
-        $output_data = array('expires' => $expires, 'session' => $session, 'pwd' => md5(DISQUS_PASSWORD));
-        file_put_contents(sys_get_temp_dir().'/session-'.DISQUS_SHORTNAME.'.json', json_encode($output_data));
+    $fields_string = fields_format($fields);
+
+    $options = array(
+        CURLOPT_URL => 'https://'.$login_host.'/login/',
+        CURLOPT_HTTPHEADER => array('Host: import.disqus.com', 'Origin: https://disqus.com'),
+        CURLOPT_HEADER => 1,
+        CURLOPT_RETURNTRANSFER => 1,
+        CURLOPT_POST => count($fields),
+        CURLOPT_POSTFIELDS => $fields_string
+    );
+
+    $curl = curl_init();
+    curl_setopt_array($curl, $options);
+
+    if (PROXY_MODE == 1) {
+      curl_setopt($curl, CURLOPT_PROXY, PROXY);
+      curl_setopt($curl, CURLOPT_PROXYTYPE, PROXYTYPE);
+      if (PROXYUSERPWD) {
+        curl_setopt($curl, CURLOPT_PROXYUSERPWD, PROXYUSERPWD);
+      }
+    }
+
+    $result = curl_exec($curl);
+    $errno = curl_errno($curl);
+
+    if ($errno == 60 || $errno == 77) {
+        curl_setopt($curl, CURLOPT_CAINFO, dirname(__FILE__) . DIRECTORY_SEPARATOR . 'cacert.pem');
+        $result = curl_exec($curl);
+    }
+
+    if( $errno == 51 ){
+        curl_setopt($curl, CURLOPT_SSL_VERIFYHOST, 0);
+        curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, 0);
+        $result = curl_exec($curl);
+    }
+
+    curl_close($curl);
+    preg_match('/^Set-Cookie:\s+(session.*)/mi', $result, $matches);
+    $cookieArr =  explode('; ',$matches[1]);
+    $cookie = (object) array();
+
+    foreach( $cookieArr as $value){
+
+        if( strpos($value,'=') !== false){
+            list($key, $val) = explode('=', $value);
+            $cookie -> $key = $val;
+        }
+
+    }
+
+    // 更新缓存
+    $cache -> update($cookie,'cookie');
+
+}
+
+// 鉴权
+function getAccessToken($fields){
+    global $access_token, $jwt, $disqus_host;
+
+    extract($_POST);
+    $url = 'https://'.$disqus_host.'/api/oauth/2.0/access_token/?';
+
+    $fields_string = fields_format($fields);
+
+    $curl = curl_init();
+    curl_setopt($curl, CURLOPT_URL, $url);
+    curl_setopt($curl, CURLOPT_HTTPHEADER, array('Host: disqus.com', 'Origin: https://disqus.com'));
+    curl_setopt($curl, CURLOPT_POST, count($fields));
+    curl_setopt($curl, CURLOPT_POSTFIELDS, $fields_string);
+    curl_setopt($curl, CURLOPT_RETURNTRANSFER, 1);
+
+    if (PROXY_MODE == 1) {
+      curl_setopt($curl, CURLOPT_PROXY, PROXY);
+      curl_setopt($curl, CURLOPT_PROXYTYPE, PROXYTYPE);
+      if (PROXYUSERPWD) {
+        curl_setopt($curl, CURLOPT_PROXYUSERPWD, PROXYUSERPWD);
+      }
+    }
+
+    $data = curl_exec($curl);
+    $errno = curl_errno($curl);
+
+    if ($errno == 60 || $errno == 77) {
+        curl_setopt($curl, CURLOPT_CAINFO, dirname(__FILE__) . DIRECTORY_SEPARATOR . 'cacert.pem');
+        $data = curl_exec($curl);
+    }
+
+    if( $errno == 51 ){
+        curl_setopt($curl, CURLOPT_SSL_VERIFYHOST, 0);
+        curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, 0);
+        $data = curl_exec($curl);
+    }
+    curl_close($curl);
+
+    // 用户授权数据
+    $auth_results = json_decode($data);
+
+    // 换算过期时间
+    $expires = $_SERVER['REQUEST_TIME'] + $auth_results -> expires_in;
+
+    // 重新获取授权码
+    $access_token = $auth_results -> access_token;
+
+    $payload = (array) $auth_results;
+    $payload['iss'] = DISQUS_EMAIL;
+    $payload['iat'] = $_SERVER['REQUEST_TIME'];
+    $payload['exp'] = $expires;
+
+    setcookie('access_token', $jwt -> encode($payload, DISQUS_PASSWORD), $expires, substr(__DIR__, strlen($_SERVER['DOCUMENT_ROOT'])), $_SERVER['HTTP_HOST'], false, true); 
+
+    return $access_token;
+}
+
+if(!function_exists("array_column"))
+{
+    function array_column($array,$column_name)
+    {
+        return array_map(function($element) use($column_name){return $element[$column_name];}, $array);
     }
 }
 
-function encodeURI($uri)
-{
-    return preg_replace_callback("{[^0-9a-z_.!~*();,/?:@&=+$#-]}i", function ($m) {
-        return sprintf('%%%02X', ord($m[0]));
-    }, $uri);
+function get_ip(){
+    $ip = '';
+    if (!empty($_SERVER['HTTP_CLIENT_IP'])) {
+        $ip = $_SERVER['HTTP_CLIENT_IP'];
+    } elseif (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+        $ip = $_SERVER['HTTP_X_FORWARDED_FOR'];
+    } else {
+        $ip = $_SERVER['REMOTE_ADDR'];
+    }
+    if(strpos($ip, ':') !== false ){
+      return null;
+    }
+    return preg_regex('/[\d\.]+/', $ip);
 }
 
-function curl_get($url){
-    global $session, $disqus_host;
-    $curl_url = 'https://'.$disqus_host.$url;
+function preg_regex($pattern, $str)
+{
+    preg_match($pattern, $str, $matches);
+    return array_pop($matches);
+}
+
+function encodeURIComponent($str){
+    $replacers = [
+        '%21' => '!',
+        '%2A' => '*',
+        '%27' => "'",
+        '%28' => '(',
+        '%29' => ')'
+    ];
+    if (!is_string($str)) return $str;
+    return strtr(rawurlencode($str), $replacers);
+}
+
+function email_format($email){
+    $index = strrpos($email, '@');
+    $start = $index > 1 ? 1 : 0;
+    $length = $index - $start;
+    $star = str_repeat('*', $length);
+    return substr_replace($email, $star, $start, $length);
+}
+
+function fields_format($fields){
+    foreach($fields as $key=>$value) { 
+        if (is_array($value)) {
+            foreach( $value as $item ){
+                $fields_string .= encodeURIComponent($key).'='.encodeURIComponent($item).'&';
+            }
+        } else {
+            $fields_string .= encodeURIComponent($key).'='.encodeURIComponent($value).'&';
+        }
+    }
+    $fields_string = rtrim($fields_string, '&');
+    return $fields_string;
+}
+
+function curl_get($url, $fields = array()){
+
+    global $cache, $disqus_host;
+
+    if( isset($access_token) && strpos($url, 'threadReactions/loadReactions') !== false ){
+
+        $fields -> api_secret = SECRET_KEY;
+        $fields -> access_token = $access_token;
+
+    } else {
+
+        $fields -> api_key = DISQUS_PUBKEY;
+        $cookies = 'sessionid='.$cache -> get('cookie') -> sessionid;
+    }
+
+    if( strpos($url, 'threads/listUsersVotedThread') !== false || strpos($url, 'threadReactions/loadReactions') !== false ){
+        unset($cookies);
+    }
+
+    $fields_string = fields_format($fields);
+
+    $curl_url = 'https://'.$disqus_host.$url.$fields_string;
 
     $options = array(
         CURLOPT_URL => $curl_url,
         CURLOPT_HTTPHEADER => array('Host: disqus.com','Origin: https://disqus.com'),
-        CURLOPT_REFERER => 'https://disqus.com',
-        CURLOPT_COOKIE => $session,
-        CURLOPT_HEADER => false,
-        CURLOPT_RETURNTRANSFER => true
+        CURLOPT_FOLLOWLOCATION => 1,
+        CURLOPT_HEADER => 0,
+        CURLOPT_RETURNTRANSFER => 1 
     );
+
     $curl = curl_init();
     curl_setopt_array($curl, $options);
+
+    if( isset($cookies)){
+        curl_setopt($curl, CURLOPT_COOKIE, $cookies);
+    }
+
+    if (PROXY_MODE == 1) {
+      curl_setopt($curl, CURLOPT_PROXY, PROXY);
+      curl_setopt($curl, CURLOPT_PROXYTYPE, PROXYTYPE);
+      if (PROXYUSERPWD) {
+        curl_setopt($curl, CURLOPT_PROXYUSERPWD, PROXYUSERPWD);
+      }
+    }
+
     $data = curl_exec($curl);
     $errno = curl_errno($curl);
     if ($errno == 60 || $errno == 77) {
         curl_setopt($curl, CURLOPT_CAINFO, dirname(__FILE__) . DIRECTORY_SEPARATOR . 'cacert.pem');
         $data = curl_exec($curl);
     }
+    if( $errno == 51 ){
+        curl_setopt($curl, CURLOPT_SSL_VERIFYHOST, 0);
+        curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, 0);
+        $data = curl_exec($curl);
+    }
     curl_close($curl);
+
     return json_decode($data);
 }
 
-function curl_post($url, $data){
-    global $session, $disqus_host, $media_host;
+function curl_post($url, $fields){
 
-    $curl_url = strpos($url, 'media') !== false ? 'https://'.$media_host.$url : 'https://'.$disqus_host.$url;
-    $curl_host = strpos($url, 'media') !== false ? 'uploads.services.disqus.com' : 'disqus.com';
+    global $access_token, $cache, $disqus_host, $media_host;
 
+    if( isset($access_token) && strpos($url, 'threads/create') === false && strpos($url, 'media/create') === false ){
+
+        $fields -> api_secret = SECRET_KEY;
+        $fields -> access_token = $access_token;
+
+    } else {
+
+        $fields -> api_key = DISQUS_PUBKEY;
+        $cookies = 'sessionid='.$cache -> get('cookie') -> sessionid;
+        if( isset($fields -> unique) ){
+            $cookies = 'disqus_unique='.$fields -> unique;
+        } 
+    }
+    unset($fields -> unique);
+
+
+    if( strpos($url, 'media/create') !== false ){
+
+        $curl_url = 'https://'.$media_host.$url;
+        $curl_host = 'uploads.services.disqus.com';
+
+        $fields_string = $fields;
+
+    } else {
+
+        $curl_url = 'https://'.$disqus_host.$url;
+        $curl_host = 'disqus.com';
+
+        $fields_string = fields_format($fields);
+    }
+
+    $curl = curl_init();
     $options = array(
         CURLOPT_URL => $curl_url,
         CURLOPT_HTTPHEADER => array('Host: '.$curl_host,'Origin: https://disqus.com'),
-        CURLOPT_COOKIE => $session,
-        CURLOPT_HEADER => false,
-        CURLOPT_REFERER => 'https://disqus.com',
+        CURLOPT_HEADER => 0,
         CURLOPT_ENCODING => 'gzip, deflate',
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_POST => true,
-        CURLOPT_POSTFIELDS => $data,
+        CURLOPT_RETURNTRANSFER => 1,
+        CURLOPT_FOLLOWLOCATION => 1,
+        CURLOPT_POST => count($fields),
+        CURLOPT_POSTFIELDS => $fields_string
     );
-    $curl = curl_init();
+
     curl_setopt_array($curl, $options);
+
+    if( isset($cookies)){
+        curl_setopt($curl, CURLOPT_COOKIE, $cookies);
+    }
+
+    if (PROXY_MODE == 1) {
+      curl_setopt($curl, CURLOPT_PROXY, PROXY);
+      curl_setopt($curl, CURLOPT_PROXYTYPE, PROXYTYPE);
+      if (PROXYUSERPWD) {
+        curl_setopt($curl, CURLOPT_PROXYUSERPWD, PROXYUSERPWD);
+      }
+    }
+
     $data = curl_exec($curl);
     $errno = curl_errno($curl);
+
     if ($errno == 60 || $errno == 77) {
         curl_setopt($curl, CURLOPT_CAINFO, dirname(__FILE__) . DIRECTORY_SEPARATOR . 'cacert.pem');
         $data = curl_exec($curl);
     }
+    if( $errno == 51 ){
+        curl_setopt($curl, CURLOPT_SSL_VERIFYHOST, 0);
+        curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, 0);
+        $data = curl_exec($curl);
+    }
     curl_close($curl);
+
     return json_decode($data);
 }
 
+function thread_format( $thread ){
+    return (object) array(
+        'author' => $thread -> author,
+        'dislikes' => $thread -> dislikes,
+        'id' => $thread -> id,
+        'slug' => $thread -> slug,
+        'identifiers' => $thread -> identifiers,
+        'likes' => $thread -> likes,
+        'link' => $thread -> link,
+        'posts' => $thread -> posts,
+        'title' => $thread -> clean_title,
+        'createdAt' => $thread -> createdAt.'+00:00'
+    );
+}
+
+function media_format( $media ){
+    if( $media -> html == '' ){
+        $media -> html = '<div class="comment-item-image"><a href="'.$media -> url.'" target="_blank" rel="nofollow" title="'.$media -> title.'" ><img src="https:'. $media -> thumbnailUrl .'" /></a></div>';
+    }
+    return $media;
+}
+
+function realUrl($url)
+{
+    $url = htmlspecialchars_decode(urldecode($url));
+    return preg_replace('/^(http|https):\/\/disq\.us\/url\?url=(.*?):[A-Za-z0-9_-]{27}&cuid=\d*/', '$2', $url);
+}
+
 function post_format( $post ){
-    global $client;
+    global $emoji, $cache;
 
-    // 是否是管理员
-    $isMod = ($post  ->  author -> username == DISQUS_USERNAME || $post -> author -> email == DISQUS_EMAIL ) && $post -> author -> isAnonymous == false ? true : false;
+    $author = $post -> author;
 
+    $modIdent = defined('MOD_IDENT') ? MOD_IDENT : 1;
 
-    // 访客指定 Gravatar 头像
-    $avatar_url = GRAVATAR_CDN.md5($post -> author -> email).'?d='.GRAVATAR_DEFAULT;
-    $post -> author -> avatar -> cache = $post -> author -> isAnonymous ? $avatar_url : $post -> author -> avatar -> cache;
-
-    // 表情
-    $post -> message = str_replace('<img class="emojione"','<img class="emojione" width="24" height="24"',$client -> toImage($post -> message));
-
-    // 链接
-    $post -> author -> url = !!$post -> author -> url ? $post -> author -> url : $post -> author -> profileUrl;
-
-    // 去除链接重定向
-    $urlPat = '/<a.*?href="(.*?disq\.us.*?)".*?>(.*?)<\/a>/i';
-    preg_match_all($urlPat, $post -> message, $urlArr);    
-    if( count($urlArr[0]) > 0 ){
-        $linkArr = array();
-        foreach ( $urlArr[1] as $item => $urlItem){
-            parse_str(parse_url($urlItem,PHP_URL_QUERY),$out);
-            $linkArr[$item] = '<a href="'.join(':', explode(':',$out['url'],-1)).'" target="_blank" title="'.$urlArr[2][$item].'">'.$urlArr[2][$item].'</a>';
-        }
-        $post -> message = str_replace($urlArr[0],$linkArr,$post -> message);
+    switch($modIdent){
+    case 1:
+        $isMod = $author -> username == DISQUS_USERNAME;
+        break;
+    case 2:
+        $isMod = $author -> name == DISQUS_USERNAME && $author -> email == DISQUS_EMAIL;
+        break;
+    case 3:
+        $isMod = $author -> name == DISQUS_USERNAME || $author -> email == DISQUS_EMAIL;
+        break;
+    default:
+        $isMod = $author -> username == DISQUS_USERNAME;
     }
 
-    // 去掉图片链接
-    $imgpat = '/<a(.*?)href="(.*?(disquscdn.com|media.giphy.com).*?\.(jpg|gif|png))"(.*?)>(.*?)<\/a>/i';
-    $post -> message = preg_replace($imgpat,'',$post -> message);
+    $uid = md5($author -> name.$author -> email);
 
-    $imgArr = array();
-    foreach ( $post -> media as $key => $image ){
-        if( strpos($image -> url, 'giphy.gif') !== false ){
-            $imgArr[$key] = '//a.disquscdn.com/get?url='.urlencode($image -> url).'&key=Hx_Z1IMzKElPuRPVmpnfsQ';
-        } else {
-            $imgArr[$key] = $image -> url;
+    // 访客数据
+    $authors = $cache -> get('authors');
+    $email = isset($authors -> $uid) ? $authors -> $uid : $author -> name;
+
+    // 访客指定 Gravatar 头像
+    $avatar = $cache -> get('forum') -> avatar;
+    $avatar = strpos($avatar, 'noavatar92') !== false ? 'https://a.disquscdn.com/images/noavatar92.png' : $avatar;
+
+    if( defined('GRAVATAR_DEFAULT') ){
+        $avatar_default = GRAVATAR_DEFAULT;
+    } else {
+        $avatar_default = substr($avatar, 0, 2) === '//' ? 'https:'.$avatar : $avatar;
+    }
+
+    if($author -> isAnonymous){
+        $author -> avatar -> cache = GRAVATAR_CDN.md5($email).'?d='.$avatar_default.'&s=92';
+    }
+
+    // 表情
+    $post -> message = $emoji -> toImage($post -> message);
+    
+    // 链接
+    $author -> url = !!$author -> url ? $author -> url : $author -> profileUrl;
+
+    // 链接及图片
+    $urlPat = '/<a.*?href="(.*?)".*?title="(.*?)".*?>(.*?)<\/a>/mi';
+    if( preg_match_all($urlPat, $post -> message, $urlMatches) ){
+        $urlMatches[1] = array_map('realUrl', $urlMatches[1]);
+        $mediaUrl = array_filter(array_column($post -> media, 'url'), function($var) {
+            return preg_match('/^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})\/?$/i', $var) == false;
+        });
+        foreach( $urlMatches[0] as $key => $item ){
+            $imgKey = array_search($urlMatches[1][$key], $mediaUrl );
+            $linkItem = '<a href="'.$urlMatches[1][$key].'" title="'.$urlMatches[2][$key].'" target="_blank" rel="nofollow">'.$urlMatches[3][$key].'</a>';
+            if( strpos($urlMatches[1][$key], 'disqus.com/by') !== false ){
+                $linkItem = '<a href="'.$urlMatches[1][$key].'" title="'.$urlMatches[2][$key].'" target="_blank" rel="nofollow">@'.$urlMatches[3][$key].'</a>';
+            }
+            if( !parse_url($urlMatches[1][$key]) ){
+                $linkItem = $urlMatches[3][$key];
+            }
+            if( $imgKey !== false ){
+                $linkItem = media_format($post -> media[$imgKey]) -> html;
+            }
+            $post -> message = str_replace($urlMatches[0][$key], $linkItem, $post -> message);
         }
-    };
+    }
 
     // 是否已删除
     if(!!$post -> isDeleted){
         $post -> message = '';
-        $post -> author -> avatar -> cache = GRAVATAR_CDN.'?d='.GRAVATAR_DEFAULT;
-        $post -> author -> username = '';
-        $post -> author -> name = '';
-        $post -> author -> url = '';
+        $post -> raw_message = '';
+        $author -> avatar -> cache =  $avatar;
+        $author -> username = '';
+        $author -> name = 'Guest';
+        $author -> url = '';
         $isMod = '';
     }
 
-    $data = array( 
-        'avatar' => $post -> author -> avatar -> cache,
+    return (object) array( 
+        'avatar' => $author -> avatar -> cache,
         'isMod' => $isMod,
         'isDeleted' => $post -> isDeleted,
-        'username' => $post -> author -> username,
+        'hasMore' => $post -> hasMore,
+        'username' => $author -> username,
         'createdAt' => $post -> createdAt.'+00:00',
         'id' => $post -> id,
-        'media' => $imgArr,
         'message' => $post -> message,
-        'name' => $post -> author -> name,
-        'parent' => $post -> parent,
-        'url' => $post -> author -> url
+        'raw_message' => $post -> raw_message,
+        'name' => $author -> name,
+        'url' => $author -> url,
+        'thread' => $post -> thread,
+        'parent' => $post -> parent
     );
-
-    return $data;
 }
+
+// 取得当前目录
+function getCurrentDir (){
+
+    $isSecure = false;
+    if (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] == 'on') {
+        $isSecure = true;
+    } elseif (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] == 'https' || !empty($_SERVER['HTTP_X_FORWARDED_SSL']) && $_SERVER['HTTP_X_FORWARDED_SSL'] == 'on') {
+        $isSecure = true;
+    }
+
+    $protocol = $isSecure ? 'https://' : 'http://';
+
+    return $protocol.$_SERVER['HTTP_HOST'].substr(str_replace('\\', '/', realpath(dirname(__FILE__))), strlen(str_replace('\\', '/', realpath($_SERVER['DOCUMENT_ROOT']))));
+}
+
+if( time() > strtotime($cache -> get('cookie') -> expires) || !$cache -> get('cookie') ){
+    adminLogin();
+}
+
+class Forum {
+    public $founder;
+    public $name;
+    public $url;
+    public $id;
+    public $pk;
+    public $sort;
+    public $avatar;
+    public $moderatorBadgeText;
+    public $settings;
+    public $expires;
+
+    public function __construct(){
+    }
+
+    protected static function convert($oForum){
+        $forum = new self();
+        $avatar = $oForum -> avatar -> large -> cache;
+        $modText = $oForum -> moderatorBadgeText;
+        $forum->moderatorBadgeText = !!$modText ? $modText : '管理员';
+        $forum->founder = $oForum -> founder;
+        $forum->name = $oForum -> name;
+        $forum->url = $oForum -> url;
+        $forum->id = $oForum -> id;
+        $forum->pk = $oForum -> pk;
+        $forum->sort = $oForum->sort;
+        $forum->avatar = substr($avatar, 0, 2) === '//' ? 'https:'.$avatar : $avatar;
+        $forum->settings = $oForum -> settings;
+        return $forum;
+    }
+
+    protected static function isOld($cForum){
+        if(!$cForum){
+            return true;
+        } else {
+            if($cForum -> id == null){
+              return true;
+            }
+        }
+        $forum = new self();
+        if(count(array_diff_key((array)$forum, (array)$cForum)) != 0){
+            return true;
+        }
+        if( $cForum -> expires < time() ){
+            return true;
+        }
+        return false;
+    }
+
+    public function update($cache){
+        if(self::isOld($cache -> get('forum'))){
+            $fields = (object) array(
+                'forum' => DISQUS_SHORTNAME
+            );
+            $curl_url = '/api/3.0/forums/details.json?';
+            $data = curl_get($curl_url, $fields);
+
+            if( $data -> code == 0 ){
+                $forum = self::convert($data -> response);
+                $forum -> expires = time() + 3600*2;
+                $cache -> update($forum,'forum');
+            }
+        }
+    }
+}
+
+$forum = new Forum();
+$forum -> update($cache);
