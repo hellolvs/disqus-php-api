@@ -7,31 +7,39 @@
  * @param cursor 当前评论位置
  *
  * @author   fooleap <fooleap@gmail.com>
- * @version  2017-10-16 14:08:12
+ * @version  2019-04-15 13:20:10
  * @link     https://github.com/fooleap/disqus-php-api
  *
  */
-namespace Emojione;
 require_once('init.php');
 
-$fields_data = array(
-    'api_key' => DISQUS_PUBKEY,
+$thread = $_GET['thread'];
+$order = $_GET['order'];
+$forum = $cache -> get('forum');
+
+if(!!empty($order)){
+    switch($forum -> sort){
+    case 1:
+        $order = 'asc';
+        break;
+    case 2:
+        $order = 'desc';
+        break;
+    case 4:
+        $order = 'popular';
+        break;
+    }
+}
+
+$fields = (object) array(
     'cursor' => $_GET['cursor'],
     'limit' => 50,
-    'forum' => DISQUS_SHORTNAME,
-    'order' => 'desc',
-    'thread' => 'link:'.$website.$_GET['link']
+    'order' => $order,
+    'thread' => $thread
 );
-$curl_url = '/api/3.0/threads/listPostsThreaded?'.http_build_query($fields_data);
-$data = curl_get($curl_url);
 
-$fields_data = array(
-    'api_key' => DISQUS_PUBKEY,
-    'forum' => DISQUS_SHORTNAME,
-    'thread' => 'link:'.$website.$_GET['link']
-);
-$curl_url = '/api/3.0/threads/details.json?'.http_build_query($fields_data);
-$detail = curl_get($curl_url);
+$curl_url = '/api/3.0/threads/listPostsThreaded?';
+$data = curl_get($curl_url, $fields);
 
 $posts = array();
 if (is_array($data -> response) || is_object($data -> response)){
@@ -40,20 +48,10 @@ if (is_array($data -> response) || is_object($data -> response)){
     }
 }
 
-if( isset($detail -> response -> ipAddress)){
-    $isAuth = true;
-} else {
-    $isAuth = false;
-}
-
-$output = $data -> code == 0 ? array(
-    'auth' => $isAuth,
-    'code' => $detail -> code,
+$output = $data -> code == 0 ? (object) array(
+    'code' => 0,
     'cursor' => $data -> cursor,
-    'link' => 'https://disqus.com/home/discussion/'.DISQUS_SHORTNAME.'/'.$detail -> response -> slug.'/?l=zh',
-    'posts' => $detail -> response -> posts,
     'response' => $posts,
-    'thread' => $detail -> response -> id
 ) : $data;
 
-print_r(json_encode($output));
+print_r(jsonEncode($output));

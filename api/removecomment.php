@@ -5,20 +5,18 @@
  * @param id  评论 ID
  *
  * @author   fooleap <fooleap@gmail.com>
- * @version  2017-07-25 12:03:09
+ * @version  2018-11-07 23:36:55
  * @link     https://github.com/fooleap/disqus-php-api
  *
  */
-namespace Emojione;
 date_default_timezone_set('UTC');
 require_once('init.php');
 
-$fields_data = array(
-    'api_key' => DISQUS_PUBKEY,
+$fields = (object) array(
     'post' => $_POST['id']
 );
-$curl_url = '/api/3.0/posts/details.json?'.http_build_query($fields_data);
-$data = curl_get($curl_url);
+$curl_url = '/api/3.0/posts/details.json?';
+$data = curl_get($curl_url, $fields);
 $duration = time() - strtotime($data->response->createdAt);
 
 $output = array();
@@ -28,7 +26,7 @@ if($data->code !== 0){
         'code' => 2,
         'response' => '请求方式有误或不存在此 post'
     );
-    print_r(json_encode($output));
+    print_r(jsonEncode($output));
     return;
 }
 
@@ -44,8 +42,7 @@ if( $data->response->isDeleted ){
 } else {
     if( $duration < 600 ){
         // 十分钟内
-        $post_data = array(
-            'api_key' => DISQUS_PUBKEY,
+        $post_data = (object) array(
             'post' => $_POST['id']
         );
         $curl_url = '/api/3.0/posts/remove.json';
@@ -69,4 +66,4 @@ if( $data->response->isDeleted ){
     }
 }
 
-print_r(json_encode($output));
+print_r(jsonEncode($output));

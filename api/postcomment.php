@@ -8,90 +8,138 @@
  * @param name    访客名字
  * @param email   访客邮箱
  * @param url     访客网址，可为空
+ * @param unique  匿名用户 unique
  *
  * @author   fooleap <fooleap@gmail.com>
- * @version  2017-09-16 23:26:32 
+ * @version  2018-11-07 23:36:35
  * @link     https://github.com/fooleap/disqus-php-api
  *
  */
-namespace Emojione;
 require_once('init.php');
+require_once('sendemail.php');
 
-$author_name = $_POST['name'];
-$author_email = $_POST['email'];
-$author_url = $_POST['url'] == '' || $_POST['url'] == 'null' ? null : $_POST['url'];
+$authorName = $_POST['name'];
+$authorEmail = strtolower($_POST['email']);
+$authorUrl = $_POST['url'] == '' || $_POST['url'] == 'null' ? null : $_POST['url'];
+$threadId = $_POST['thread'];
+$parent = $_POST['parent'];
+$authors = $cache -> get('authors');
+$approved = DISQUS_APPROVED == 1 ? 'approved' : null;
+$pPost = null;
 
-// 管理员
-if($author_name == DISQUS_USERNAME){
-    $author_name = null;
-    if( $author_email == DISQUS_EMAIL && strpos($session, 'session') !== false ){
-        $author_email = null;
-        $author_url = null;
-        $approved = null;
-    } 
+// 黑名单
+if(DISQUS_BLACKLIST == 1){
+    $fields = (object) array(
+        'forum' => DISQUS_SHORTNAME,
+        'type' => 'ip',
+        'query' => get_ip()
+    );
+    $curl_url = '/api/3.0/blacklists/list.json?';
+    $data = curl_get($curl_url, $fields);
+    if(count($data -> response) != 0){
+        $output = array(
+            'code' => '12',
+            'response' => 'You do not have permission to post on this thread'
+        );
+        print_r(jsonEncode($output));
+        exit(0);
+    }
 }
 
-// 父评是已登录用户
-if(!empty($_POST['parent'])){
-    $fields_data = array(
-        'api_key' => DISQUS_PUBKEY,
-        'post' => $_POST['parent']
+// 文章信息
+$fields = (object) array(
+    'thread' => $threadId
+);
+$curl_url = '/api/3.0/threads/details.json?';
+$data = curl_get($curl_url, $fields);
+$thread = thread_format($data -> response);
+
+// 存在父评，即回复
+if(!empty($parent)){
+
+    $fields = (object) array(
+        'post' => $parent,
     );
-    $curl_url = '/api/3.0/posts/details.json?'.http_build_query($fields_data);
-    $data = curl_get($curl_url);
-    $post = post_format($data->response);
-    if($data->response->author->isAnonymous == false){
+    $curl_url = '/api/3.0/posts/details.json?';
+    $data = curl_get($curl_url, $fields);
+    $pAuthor = $data->response->author;
+    if( $pAuthor->isAnonymous == false ){
+        // 防止重复发邮件
         $approved = null;
     }
+    
+    $pUid = md5($pAuthor->name.$pAuthor->email);
+    $pEmail = $authors -> $pUid; // 被回复邮箱
+    $pPost = post_format($data->response);
 }
 
 $curl_url = '/api/3.0/posts/create.json';
-$post_message = html_entity_decode($client->shortnameToUnicode($_POST['message']));
-//$post_message = $client->unifyUnicode($_POST['message']);
+$postMessage = $emoji->toUnicode($_POST['message']);
 
-$post_data = array(
-    'api_key' => DISQUS_PUBKEY,
-    'thread' => $_POST['thread'],
-    'parent' => $_POST['parent'],
-    'message' => $post_message,
-    'author_name' => $author_name,
-    'author_email' => $author_email,
-    'author_url' => $author_url,
-    'state' => $approved
-    //'ip_address' => $_SERVER["REMOTE_ADDR"]
-);
+// 已登录
+if( isset($access_token) ){
+
+    $post_data = (object) array(
+        'thread' => $threadId,
+        'parent' => $parent,
+        'message' => $postMessage,
+        'ip_address' => get_ip()
+    );
+
+} else {
+
+    $post_data = (object) array(
+        'thread' => $threadId,
+        'parent' => $parent,
+        'message' => $postMessage,
+        'author_name' => $authorName,
+        'author_email' => $authorEmail,
+        'author_url' => $authorUrl
+    );
+
+    if(!!$cache -> get('cookie')){
+        $post_data -> state = $approved;
+    }
+}
+
 $data = curl_post($curl_url, $post_data);
 
-$output = $data -> code == 0 ? array(
-    'code' => $data -> code,
-    'thread' => $_POST['thread'],
-    'response' => post_format($data -> response)
-) : $data;
+if( $data -> code == 0 ){
 
-if ( !empty($_POST['parent']) && $data -> code == 0 ){
-    $mail_query = array(
-        'parent'=> $_POST['parent'],
-        'id'=> $data -> response -> id,
-        'link'=> $_POST['link'],
-        'title'=> $_POST['title'],
-        'session'=> $session
-    );
-    $mail = curl_init();
-    $protocol = ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] != 'off') || $_SERVER['SERVER_PORT'] == 443) ? 'https://' : 'http://';
-    $curl_opt = array(
-        CURLOPT_URL => $protocol.$_SERVER['HTTP_HOST'].dirname($_SERVER['SCRIPT_NAME']).'/sendemail.php',
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_POST => true,
-        CURLOPT_POSTFIELDS => $mail_query,
-        CURLOPT_TIMEOUT => 1
-    );
-    curl_setopt_array($mail, $curl_opt);
-    curl_exec($mail);
-    $errno = curl_errno($mail);
-    if ($errno == 60 || $errno == 77) {
-        curl_setopt($mail, CURLOPT_SSL_VERIFYPEER, false); 
-        curl_exec($mail);
+    // 匿名用户暂存邮箱号
+    if( !isset($access_token) ){
+        $authors = $cache -> get('authors');
+        $uid = md5($authorName.email_format($authorEmail));
+        $authors -> $uid = $authorEmail;
+        $cache -> update($authors, 'authors');
     }
-    curl_close($mail);
+
+    $rPost = post_format($data->response);
+
+    $output = array(
+        'code' => $data -> code,
+        'thread' => $thread,
+        'parent' => $pPost,
+        'response' => $rPost
+    );
+
+    if( function_exists('fastcgi_finish_request') ){
+        print_r(jsonEncode($output));
+        fastcgi_finish_request();
+        sendModEmail($thread, $pPost, $rPost);
+        // 父评是匿名用户
+        if( $pAuthor->isAnonymous ){
+            sendAnonEmail($thread, $pPost, $rPost, $pEmail);
+        }
+    } else {
+        $output['verifyCode'] = $pAuthor->isAnonymous ? $pUid : time();
+        print_r(jsonEncode($output));
+    }
+
+} else {
+
+    $output = $data;
+    print_r(jsonEncode($output));
+
 }
-print_r(json_encode($output));
+
